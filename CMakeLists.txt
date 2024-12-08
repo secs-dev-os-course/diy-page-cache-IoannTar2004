@@ -4,6 +4,10 @@ set(CMAKE_C_STANDARD 99)
 
 set(TESTS tests)
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+
 file(GLOB SOURCE_FILES "src/cacheAPI/*.c")
 file(GLOB HEADER_FILES "src/cacheAPI/*.h")
 add_library(myCache SHARED ${SOURCE_FILES} ${HEADER_FILES})
