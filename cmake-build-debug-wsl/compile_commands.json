@@ -1,0 +1,12 @@
+[
+{
+  "directory": "/home/ivan_kanga/univer/os/lab2/cmake-build-debug-wsl",
+  "command": "/usr/bin/c++   -g -DGTEST_HAS_PTHREAD=1 -o CMakeFiles/tests.dir/test/test.cpp.o -c /home/ivan_kanga/univer/os/lab2/test/test.cpp",
+  "file": "/home/ivan_kanga/univer/os/lab2/test/test.cpp"
+},
+{
+  "directory": "/home/ivan_kanga/univer/os/lab2/cmake-build-debug-wsl",
+  "command": "/usr/bin/gcc-11   -g -DGTEST_HAS_PTHREAD=1 -std=gnu99 -o CMakeFiles/tests.dir/src/lib_cache/cache.c.o -c /home/ivan_kanga/univer/os/lab2/src/lib_cache/cache.c",
+  "file": "/home/ivan_kanga/univer/os/lab2/src/lib_cache/cache.c"
+}
+]

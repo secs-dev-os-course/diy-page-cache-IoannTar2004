@@ -1,0 +1,5 @@
+/home/ivan_kanga/univer/os/lab2/cmake-build-debug-wsl/CMakeFiles/myCache.dir
+/home/ivan_kanga/univer/os/lab2/cmake-build-debug-wsl/CMakeFiles/tests.dir
+/home/ivan_kanga/univer/os/lab2/cmake-build-debug-wsl/CMakeFiles/test.dir
+/home/ivan_kanga/univer/os/lab2/cmake-build-debug-wsl/CMakeFiles/edit_cache.dir
+/home/ivan_kanga/univer/os/lab2/cmake-build-debug-wsl/CMakeFiles/rebuild_cache.dir
