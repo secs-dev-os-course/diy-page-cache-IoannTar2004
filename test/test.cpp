@@ -34,6 +34,18 @@ int main(int argc, char** args) {
 //    InitGoogleTest(&argc, args);
 //    return RUN_ALL_TESTS();
 
-
+    int fd = shm_open("my_cache", O_RDWR, 0666);
+    int* shm = (int*) mmap(nullptr, 3, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    int n = stoi(args[1]);
+    if (n > 0) {
+        shm[0] = n;
+        shm[1] = 0;
+        shm[2] = 0;
+    }
+    for (int i = 0; i < 4; ++i) {
+        printf("%d ", shm[i]);
+    }
+    munmap(shm, 3);
+    close(fd);
     return 0;
 }

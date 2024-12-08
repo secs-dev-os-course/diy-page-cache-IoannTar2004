@@ -1,8 +1,6 @@
 #include <stdio.h>
+#include "../utils/cache_meta.h"
 
-int x = 0;
+int lab2_open(const char* path) {
 
-void a(int d) {
-    x = d > 0 ? d : x;
-    printf("%d\n", x);
 }
