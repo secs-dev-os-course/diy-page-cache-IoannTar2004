@@ -20,12 +20,22 @@ void print_info(cache_stat_t* stat, cache_meta_t* meta) {
     for (int i = 0; i < stat->page_count; ++i) {
         cout << "inode: " << meta[i].inode << endl;
         cout << "filepath: \'" << meta[i].filepath << "\'" << endl;
-        cout << "offset: " << meta[i].offset << endl;
+        cout << "total: " << meta[i].total << endl;
         cout << "is opened: " << meta[i].opened << endl;
         cout << "is dirty: " << meta[i].is_dirty << endl;
         cout << "last update: " << meta[i].last_update << endl;
-        cout << "hint: " << meta[i].hint << endl << endl;
+        cout << "hint: " << meta[i].hint << endl;
+        cout << "next page: " << (meta[i].next_page != -1 ? to_string(meta[i].next_page) : "NULL") << endl << endl;
     }
+}
+
+void clear_cache(cache_stat_t* stat, cache_meta_t* meta) {
+    for (int i = 0; i < stat->page_count; i++) {
+        meta[i].opened = false;
+        meta[i].is_dirty = false;
+    }
+    stat->free = stat->page_count;
+    cout << "> cleared!\n";
 }
 
 void read_commands(cache_stat_t* stat, cache_meta_t* meta) {
@@ -34,6 +44,8 @@ void read_commands(cache_stat_t* stat, cache_meta_t* meta) {
         cin >> cmd;
         if (cmd == "info")
             print_info(stat, meta);
+        if (cmd == "clear")
+            clear_cache(stat, meta);
     } while (cmd != "exit");
 }
 
