@@ -5,9 +5,9 @@
 using namespace std;
 using namespace testing;
 
-extern "C" {
-    void a(int d);
-}
+extern int lab2_open(const string& path);
+extern int lab2_close(uint64_t inode);
+extern void munmap_memory();
 
 class LabTest : public Test {
 
@@ -21,7 +21,6 @@ class LabTest : public Test {
 };
 
 TEST_F(LabTest, foo) {
-    a(50);
     sleep(5);
 }
 
@@ -34,18 +33,11 @@ int main(int argc, char** args) {
 //    InitGoogleTest(&argc, args);
 //    return RUN_ALL_TESTS();
 
-    int fd = shm_open("my_cache", O_RDWR, 0666);
-    int* shm = (int*) mmap(nullptr, 3, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    int n = stoi(args[1]);
-    if (n > 0) {
-        shm[0] = n;
-        shm[1] = 0;
-        shm[2] = 0;
-    }
-    for (int i = 0; i < 4; ++i) {
-        printf("%d ", shm[i]);
-    }
-    munmap(shm, 3);
-    close(fd);
+    int f1 = lab2_open("../CMakeLists.txt");
+    int f2 = lab2_open("../README.md");
+    sleep(6);
+    lab2_close(f1);
+    lab2_close(f2);
+    munmap_memory();
     return 0;
 }
