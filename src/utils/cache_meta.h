@@ -20,6 +20,4 @@ typedef struct {
     int dirty_count;
 } cache_stat_t;
 
-int page_struct_size();
-
 #endif
