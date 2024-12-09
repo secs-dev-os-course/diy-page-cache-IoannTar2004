@@ -6,12 +6,12 @@
 #include <string.h>
 #include "../utils/cache_meta.h"
 
+#define STAT_MEMORY_NAME "my_cache_stat"
+#define STAT_SIZE sizeof (cache_stat_t)
 #define META_MEMORY_NAME "my_cache_meta"
 #define META_SIZE sizeof (cache_meta_t)
 #define PAGE_MEMORY_NAME "my_cache_pages"
 #define PAGE_SIZE 4096
-#define STAT_MEMORY_NAME "my_cache_stat"
-#define STAT_SIZE 8
 
 void read_commands() {
     char* cmd = NULL;
@@ -52,7 +52,7 @@ void cache_init(cache_stat_t* stat, cache_meta_t* meta_inf, char* pages, int cou
     stat->dirty_count = 0;
     for (int i = 0; i < count; ++i) {
         char* n = pages + i * PAGE_SIZE;
-        cache_meta_t meta = {.filepath = "", .data = n};
+        cache_meta_t meta = {.inode = -1, .filepath = "", .data = n};
         meta_inf[i] = meta;
     }
 }
@@ -67,7 +67,7 @@ void cache_init(cache_stat_t* stat, cache_meta_t* meta_inf, char* pages, int cou
 
 int main(int argc, char** args) {
     if (argc < 2)
-        printf("Usage: ./cacheManager <page count>");
+        printf("Usage: ./cacheManager <page count>\n");
     else {
         printf("> Cache initializing\n");
         int count = (int) strtol(args[1], NULL, 10);
