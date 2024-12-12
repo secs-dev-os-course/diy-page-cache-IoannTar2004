@@ -8,7 +8,6 @@ using namespace testing;
 extern int lab2_open(const string& path);
 extern int lab2_close(uint64_t inode);
 ssize_t lab2_read(uint64_t inode, char* buf, size_t count);
-extern void munmap_memory();
 
 class LabTest : public Test {
 
@@ -34,9 +33,9 @@ int main(int argc, char** args) {
 //    InitGoogleTest(&argc, args);
 //    return RUN_ALL_TESTS();
 
-    uint64_t f1 = lab2_open("../CMakeLists.txt");
-    char* buf;
-    lab2_read(f1, buf, 10);
-    munmap_memory();
+    uint64_t f1 = lab2_open("../a");
+    char buf[30];
+    lab2_read(f1, buf, 30);
+    lab2_close(0);
     return 0;
 }

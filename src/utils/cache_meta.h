@@ -3,18 +3,19 @@
 
 #include <string>
 
-#define PAGE_SIZE 800
-#define FILEPATH_SIZE 256
+#define PAGE_SIZE 3   //TODO временно не 4096
 
 typedef struct {
     uint64_t inode;
-    char filepath[FILEPATH_SIZE];
-    uint32_t total;
-    uint32_t opened;
+    std::string filepath;
+    int total;
+    bool opened;
     bool is_dirty;
-    time_t last_update;
-    uint32_t hint;
-    uint32_t next_page;
+    double last_update;
+    int hint;
+    int begin;
+    int end;
+    int next_page;
 
     char data[PAGE_SIZE];
 } cache_meta_t;
@@ -22,8 +23,6 @@ typedef struct {
 typedef struct {
     uint32_t page_count;
     uint32_t dirty_count;
-    uint32_t free;
-    bool is_busy;
 } cache_stat_t;
 
 #endif
