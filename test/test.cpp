@@ -31,7 +31,7 @@ void write1(string& path) {
 void write2(string& path) {
     ofstream file(path);
     char i = 65;
-    for (int j = 0; j < 4098; ++j) {
+    for (int j = 0; j < 4096; ++j) {
         file << i;
         i = i == 122 ? 65 : i + 1;
     }
@@ -47,14 +47,14 @@ int main(int argc, char** args) {
 //    InitGoogleTest(&argc, args);
 //    return RUN_ALL_TESTS();
     string path = "../a";
-    write1(path);
+    write2(path);
     uint64_t f1 = lab2_open(path);
     char* buf = (char*) (malloc(4100));
-    lab2_read(f1, buf, 10);
-    lab2_lseek(f1, 0, BEGIN);
-
-    write2(path);
     lab2_read(f1, buf, 4098);
+    lab2_lseek(f1, 4092, BEGIN);
+
+    char* buf1 = "4012";
+    lab2_write(f1, buf1, 4);
     lab2_close(f1);
     free(buf);
     return 0;

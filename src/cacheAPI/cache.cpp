@@ -8,7 +8,7 @@
 #include <cstring>
 #include "../utils/cache_meta.h"
 
-#define PAGE_COUNT 3
+#define PAGE_COUNT 2
 #define NANO 1000000000
 
 using namespace std;
@@ -60,14 +60,13 @@ static vector<int> find_place(const size_t rq) {
 }
 
 static uint64_t get_buffer(char* buf, page_meta_t& meta, size_t count) {
-    auto pages = meta.pages;
-    uint64_t first_page = meta.cursor / PAGE_SIZE;
+    count = meta.size - meta.cursor < count ? meta.size - meta.cursor : count;
     uint64_t total_bytes = 0;
     uint16_t offset = meta.cursor % PAGE_SIZE;
-    for (uint64_t i = first_page; i < pages.size() && total_bytes < count; ++i) {
+    for (uint64_t i = meta.cursor / PAGE_SIZE; total_bytes < count; ++i) {
         auto& page = pages_cache[meta.pages[i]];
         char* src = page.data + offset;
-        uint16_t n = count - total_bytes > page.chars ? page.chars - offset : count - total_bytes;
+        uint16_t n = count - total_bytes > page.chars - offset ? page.chars - offset : count - total_bytes;
         strncpy(buf + total_bytes, src, n);
         meta.cursor += n;
         total_bytes += n;
@@ -81,8 +80,8 @@ inline static void clear_pages(const vector<int>& pages) {
         pages_cache[i].busy = false;
 }
 
-static int open_direct(const char* path, char** aligned_buffer) {
-    int fd = open(path, O_RDONLY | O_DIRECT);
+static int open_direct(const char* path, char** aligned_buffer, int flags) {
+    int fd = open(path, flags | O_DIRECT);
     if (fd == -1) {
         perror("Error opening file!");
         return -1;
@@ -94,10 +93,35 @@ static int open_direct(const char* path, char** aligned_buffer) {
     return fd;
 }
 
-static uint64_t read_direct(int fd, char* aligned_buffer, char* buf, int64_t cursor, size_t count) {
+static bool read_to_cache(page_meta_t& meta) {
+    char* aligned_buffer;
+    int fd = open_direct(meta.filepath.c_str(), &aligned_buffer, O_RDONLY);
+    if (fd == -1) return false;
+
+    for (int i : meta.pages) {
+        page_t& page = pages_cache[i];
+        ssize_t bytes_read = read(fd, aligned_buffer, PAGE_SIZE);
+        if (bytes_read == -1) {
+            free(aligned_buffer);
+            return false;
+        }
+        strncpy(page.data, aligned_buffer, bytes_read);
+        page.busy = true;
+        page.chars = bytes_read;
+    }
+    free(aligned_buffer);
+    close(fd);
+    return true;
+}
+
+static uint64_t read_direct(page_meta_t& meta, char* buf, int64_t count) {
+    char* aligned_buffer;
+    int fd = open_direct(meta.filepath.c_str(), &aligned_buffer, O_RDONLY);
+    if (fd == -1) return 0;
+
     int i = 0;
     uint64_t total = 0, bytes_read;
-    lseek(fd, cursor, SEEK_SET);
+    lseek(fd, meta.cursor, SEEK_SET);
     while ((bytes_read = read(fd, aligned_buffer, PAGE_SIZE)) > 0 && total < count) {
         if (bytes_read == -1) {
             free(aligned_buffer);
@@ -112,22 +136,7 @@ static uint64_t read_direct(int fd, char* aligned_buffer, char* buf, int64_t cur
     return total;
 }
 
-static bool read_to_cache(page_meta_t& meta, int fd, char* aligned_buffer) {
-    for (int i : meta.pages) {
-        page_t& page = pages_cache[i];
-        ssize_t bytes_read = read(fd, aligned_buffer, PAGE_SIZE);
-        if (bytes_read == -1) {
-            free(aligned_buffer);
-            return false;
-        }
-        strncpy(page.data, aligned_buffer, bytes_read);
-        page.busy = true;
-        page.chars = bytes_read;
-    }
-    return true;
-}
-
-uint64_t lab2_read(uint64_t inode, char* buf, size_t count) {
+uint64_t lab2_read(uint64_t inode, char* buf, int64_t count) {
     auto it = meta_map.find(inode);
     if (it == meta_map.end())
         return -1;
@@ -137,9 +146,6 @@ uint64_t lab2_read(uint64_t inode, char* buf, size_t count) {
     if (stat(meta.filepath.c_str(), &file_stat) == -1)
         return -1;
     if (get_last_time(file_stat.st_mtim) != meta.last_update) {
-        char *aligned_buffer;
-        int fd = open_direct(meta.filepath.c_str(), &aligned_buffer);
-        if (fd == -1) return 0;
         int64_t rq = (PAGE_SIZE + file_stat.st_size - 1) / PAGE_SIZE;
 
         if (rq > meta.pages.size()) {
@@ -147,22 +153,89 @@ uint64_t lab2_read(uint64_t inode, char* buf, size_t count) {
             if (!find.empty())
                 meta.pages.insert(meta.pages.end(), find.begin(), find.end());
             else
-                return read_direct(fd, aligned_buffer, buf, meta.cursor, count);
-        } else {
-            clear_pages(vector(meta.pages.begin() + rq, meta.pages.end()));
-            meta.pages.resize(meta.pages.size() - rq);
+                return read_direct(meta, buf, count);
+        } else
             meta.cursor = meta.cursor > file_stat.st_size ? file_stat.st_size : meta.cursor;
-        }
 
         meta.last_update = get_last_time(file_stat.st_mtim);
-        read_to_cache(meta, fd, aligned_buffer);
-        free(aligned_buffer);
-        close(fd);
+        meta.size = file_stat.st_size;
+        read_to_cache(meta);
     }
     return get_buffer(buf, meta, count);
 }
 
-void lab2_lseek(uint64_t inode, off_t offset, int whence) {
+static int64_t write_to_cache(page_meta_t& meta, char* buf, int64_t count) {
+    int64_t total_bytes = 0;
+    uint16_t offset = meta.cursor % PAGE_SIZE;
+    for (uint64_t i = meta.cursor / PAGE_SIZE; total_bytes < count; ++i) {
+        auto& page = pages_cache[meta.pages[i]];
+        uint16_t n = count - total_bytes > PAGE_SIZE - offset ? PAGE_SIZE - offset : count - total_bytes;
+        strncpy(page.data + offset, buf + total_bytes, n);
+        meta.cursor += n;
+        total_bytes += n;
+        page.busy = true;
+        page.is_dirty = true;
+        page.chars = n > page.chars ? n - page.chars : page.chars;
+        offset = 0;
+    }
+    return total_bytes;
+}
+
+#define WRITE_ERROR \
+    if (bytes_written == -1) {  \
+        perror("Error writing to file");    \
+        free(aligned_buffer);   \
+        close(fd);  \
+        return -1;  \
+    }
+
+#define WRITE_DIRECT(mem) \
+    memset(aligned_buffer, 0, PAGE_SIZE);   \
+    memcpy(aligned_buffer, mem, n);   \
+    ssize_t bytes_written = write(fd, aligned_buffer, PAGE_SIZE);   \
+    WRITE_ERROR
+
+
+static int64_t write_direct(page_meta_t& meta, char* buf, int64_t count) {
+    char *aligned_buffer;
+    int fd = open_direct(meta.filepath.c_str(), &aligned_buffer, O_WRONLY | O_CREAT);
+    if (fd == -1) return 0;
+
+    uint16_t n = INT16_MAX;
+    for (int i = 0; n > PAGE_SIZE; ++i) {
+        auto& page = pages_cache[meta.pages[i]];
+        n = meta.cursor / PAGE_SIZE > 0 ? PAGE_SIZE : meta.cursor % PAGE_SIZE;
+        page.is_dirty = false;
+        WRITE_DIRECT(page.data)
+    }
+    n = INT16_MAX;
+    for (int i = 0; n > PAGE_SIZE; ++i) {
+        n = count - i * PAGE_SIZE > PAGE_SIZE ? PAGE_SIZE : count - i * PAGE_SIZE;
+        WRITE_DIRECT(buf + i * PAGE_SIZE)
+    }
+    free(aligned_buffer);
+    close(fd);
+    return count;
+}
+
+int64_t lab2_write(uint64_t inode, char* buf, int64_t count) {
+    auto it = meta_map.find(inode);
+    if (it == meta_map.end())
+        return -1;
+    auto& meta = it->second;
+    uint64_t rq = (count + meta.cursor - 1) / PAGE_SIZE + 1;
+    if (rq > meta.pages.size()) {
+        vector<int> find = find_place(rq - meta.pages.size());
+        if (!find.empty())
+            meta.pages.insert(meta.pages.end(), find.begin(), find.end());
+        else
+            return write_direct(meta, buf, count);
+    }
+    meta.size = meta.cursor + count > meta.size ? meta.cursor + count : meta.size;
+    return write_to_cache(meta, buf, count);
+}
+
+void lab2_lseek(uint64_t inode, int64_t offset, int whence) {
     auto& meta = meta_map[inode];
     switch (whence) {
         case 0:

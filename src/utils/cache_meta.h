@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#define PAGE_SIZE 4096   //TODO временно не 4096
+#define PAGE_SIZE 4096
 
 using namespace std;
 
