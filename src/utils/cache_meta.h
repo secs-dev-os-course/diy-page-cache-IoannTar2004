@@ -15,6 +15,8 @@ typedef struct {
     char data[PAGE_SIZE];
 } page_t;
 
+typedef double access_hint_t;
+
 typedef struct {
     vector<int> pages;
     string filepath;
@@ -22,7 +24,7 @@ typedef struct {
     bool opened;
     int64_t cursor;
     double last_update;
-    double hint;
+    access_hint_t hint;
 } page_meta_t;
 
 #endif
