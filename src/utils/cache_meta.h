@@ -2,27 +2,27 @@
 #define LAB2_CACHE_META_H
 
 #include <string>
+#include <vector>
 
-#define PAGE_SIZE 3   //TODO временно не 4096
+#define PAGE_SIZE 4096   //TODO временно не 4096
+
+using namespace std;
 
 typedef struct {
-    uint64_t inode;
-    std::string filepath;
-    int total;
-    bool opened;
+    bool busy;
     bool is_dirty;
-    double last_update;
-    int hint;
-    int begin;
-    int end;
-    int next_page;
-
+    uint16_t chars;
     char data[PAGE_SIZE];
-} cache_meta_t;
+} page_t;
 
 typedef struct {
-    uint32_t page_count;
-    uint32_t dirty_count;
-} cache_stat_t;
+    vector<int> pages;
+    string filepath;
+    int64_t size;
+    bool opened;
+    int64_t cursor;
+    double last_update;
+    double hint;
+} page_meta_t;
 
 #endif

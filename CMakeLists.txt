@@ -12,14 +12,6 @@ file(GLOB SOURCE_FILES "src/cacheAPI/*.cpp")
 file(GLOB HEADER_FILES "src/cacheAPI/*.h")
 add_library(myCache SHARED ${SOURCE_FILES} ${HEADER_FILES})
 
-function(add_module target_name target_dir)
-    file(GLOB SOURCE_FILES "${target_dir}/*.cpp" "src/utils/*.cpp")
-    file(GLOB HEADER_FILES "${target_dir}/*.h" "src/utils/*.h")
-    add_executable(${target_name} ${SOURCE_FILES} ${HEADER_FILES})
-endfunction()
-
-add_module(cacheManager "src/cacheManager")
-
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 enable_testing()
