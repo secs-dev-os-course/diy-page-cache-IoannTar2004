@@ -4,7 +4,7 @@
 #include <string>
 #include "../utils/cache_meta.h"
 
-#define BEGIN 0
+#define SET 0
 #define END 1
 #define CUR 2
 

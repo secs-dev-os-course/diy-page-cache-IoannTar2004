@@ -1,9 +1,8 @@
 #include <gtest/gtest.h>
-#include <sys/mman.h>
 #include <unistd.h>
 #include <fstream>
-#include <fcntl.h>
 #include "../src/cacheAPI/cache.h"
+#include "../src/bench/ema-search-str.h"
 using namespace std;
 using namespace testing;
 
@@ -46,15 +45,18 @@ int main(int argc, char** args) {
 //    chdir(args[1]);
 //    InitGoogleTest(&argc, args);
 //    return RUN_ALL_TESTS();
-    string path = "../a";
-    write1(path);
-    model();
-    uint64_t f1 = lab2_open(path);
-    char* buf = (char*) (malloc(4100));
-    lab2_read(f1, buf, 4096);
-//    lab2_lseek(f1, 4092, BEGIN);
-
-    lab2_close(f1);
-    free(buf);
+//    string path = "../a";
+//    write1(path);
+//    model();
+//    uint64_t f1 = lab2_open(path);
+//    char* buf = (char*) (malloc(4100));
+//    lab2_read(f1, buf, 4096);
+////    lab2_lseek(f1, 4092, BEGIN);
+//
+//    lab2_close(f1);
+//    free(buf);
+    ssize_t ptr1, ptr2;
+    ema_search_str("../a", "abc", &ptr1, &ptr2);
+    cout << ptr1 << " " << ptr2 << endl;
     return 0;
 }
