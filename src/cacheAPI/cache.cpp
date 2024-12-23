@@ -1,4 +1,3 @@
-#include <iostream>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -8,7 +7,7 @@
 #include <cstring>
 #include "../utils/cache_meta.h"
 
-#define PAGE_COUNT 5
+#define PAGE_COUNT 1
 #define NANO 1000000000
 #define FIND_INODE(inode, ret) \
     auto it = meta_map.find(inode); \
@@ -22,12 +21,25 @@ unordered_map<uint64_t, page_meta_t> meta_map;
 
 using namespace std;
 
+static vector<int> cache_preempt(size_t rq);
+static vector<int> find_place(size_t rq);
+static ssize_t get_buffer(char* buf, page_meta_t& meta, size_t count);
+static int open_direct(const char* path, char** aligned_buffer, int flags);
+static bool read_to_cache(page_meta_t& meta);
+static ssize_t read_direct(page_meta_t& meta, char* buf, int64_t count);
+static int64_t write_to_cache(page_meta_t& meta, char* buf, int64_t count);
+static int64_t write_direct(page_meta_t& meta, char* buf, int64_t count);
+
+// возвращает время последней модификации в удобном формате (double)
 inline static double get_last_time(struct timespec update) {
     return (double) update.tv_sec + (double) update.tv_nsec / NANO;
 }
 
 void lab2_fsync(uint64_t inode);
 access_hint_t lab2_advice(uint64_t inode, access_hint_t hint);
+
+/** -------- Открытие файла ---------
+ * Сначала проверяется, существует ли файл в системе. Затем инициализируется мета информация о файле. */
 
 uint64_t lab2_open(const string& path) {
     if (!filesystem::exists(path))
@@ -37,10 +49,15 @@ uint64_t lab2_open(const string& path) {
         return -1;
 
     uint64_t inode = file_stat.st_ino;
-    if (meta_map.find(inode) == meta_map.end())
-        meta_map[inode] = {.filepath = path, .size = file_stat.st_size, .opened = true};
+    auto& meta = meta_map[inode];
+    meta.filepath = path;
+    meta.size = file_stat.st_size;
+    meta.opened = true;
     return inode;
 }
+
+/** -------- Закрытие файла ---------
+ * Помечает в мета-информации файла, что файл закрыт. Переставляет курсор (seek) в позицию 0. */
 
 int lab2_close(uint64_t inode) {
     FIND_INODE(inode, -1)
@@ -48,6 +65,13 @@ int lab2_close(uint64_t inode) {
     it->second.cursor = 0;
     return 0;
 }
+
+/** ------- Освобождение ненужных страниц кэша ---------
+ * Условия для вытеснения кэша:
+ * - количество страниц должно быть больше или равно требуемому количеству.
+ * - файл не должен быть открыт.
+ * - текущее время должно быть больше времени-подсказки hint (вытеснение Optimal).
+ * Перед очисткой страниц происходит сброс данных на диск (lab2_fsync). Возвращает вектор номеров свободных страниц.*/
 
 static vector<int> cache_preempt(size_t rq) {
     struct timespec current_time{};
@@ -78,6 +102,12 @@ static vector<int> cache_preempt(size_t rq) {
     return free;
 }
 
+/** ------- Поиск свободных страниц для кэширования данных -------
+ * Проходит в цикле по всем страницам кэша и заполняет вектор free_pages свободными страницами.
+ * Если требуемое кол-во страниц не найдено, вызывается функция вытеснения кэша.
+ * Возвращает вектор номеров свободных страниц. Если даже очистка кэша не помогла найти страницы,
+ * возвращается пустой вектор.*/
+
 static vector<int> find_place(const size_t rq) {
     int found = 0;
     vector<int> free_pages;
@@ -92,9 +122,10 @@ static vector<int> find_place(const size_t rq) {
     return cache_preempt(rq);
 }
 
-static uint64_t get_buffer(char* buf, page_meta_t& meta, size_t count) {
+/** ------- Заполнение пользовательского буфера данными -------*/
+static ssize_t get_buffer(char* buf, page_meta_t& meta, size_t count) {
     count = meta.size - meta.cursor < count ? meta.size - meta.cursor : count;
-    uint64_t total_bytes = 0;
+    ssize_t total_bytes = 0;
     uint16_t offset = meta.cursor % PAGE_SIZE;
     for (uint64_t i = meta.cursor / PAGE_SIZE; total_bytes < count; ++i) {
         auto& page = pages_cache[meta.pages[i]];
@@ -108,6 +139,8 @@ static uint64_t get_buffer(char* buf, page_meta_t& meta, size_t count) {
     return total_bytes;
 }
 
+/** Открывает файл с флагом O_DIRECT, позволяющий читать данные напрямую из файла в обход кэша ОС.
+ * Для чтения и записи таким способом требуется выравнивание буфера. */
 static int open_direct(const char* path, char** aligned_buffer, int flags) {
     int fd = open(path, flags | O_DIRECT);
     if (fd == -1) {
@@ -121,6 +154,7 @@ static int open_direct(const char* path, char** aligned_buffer, int flags) {
     return fd;
 }
 
+/** ------- Чтение данных из файла в кэш ------- */
 static bool read_to_cache(page_meta_t& meta) {
     char* aligned_buffer;
     int fd = open_direct(meta.filepath.c_str(), &aligned_buffer, O_RDONLY);
@@ -142,29 +176,37 @@ static bool read_to_cache(page_meta_t& meta) {
     return true;
 }
 
-static uint64_t read_direct(page_meta_t& meta, char* buf, int64_t count) {
+/** ------- Чтение данных напрямую из файла в обход кэша -------
+ * Вызывается в случае нехватки места в кэше и невозможности вытеснения страниц. */
+
+static ssize_t read_direct(page_meta_t& meta, char* buf, int64_t count) {
     char* aligned_buffer;
     int fd = open_direct(meta.filepath.c_str(), &aligned_buffer, O_RDONLY);
     if (fd == -1) return 0;
 
     int i = 0;
-    uint64_t total = 0, bytes_read;
-    lseek(fd, meta.cursor, SEEK_SET);
-    while ((bytes_read = read(fd, aligned_buffer, PAGE_SIZE)) > 0 && total < count) {
-        if (bytes_read == -1) {
-            free(aligned_buffer);
-            return -1;
-        }
-        size_t n = count - total > PAGE_SIZE ? PAGE_SIZE : count - total;
-        strncpy(buf + PAGE_SIZE * i, aligned_buffer, n);
+    ssize_t total = 0;
+    off_t offset = meta.cursor % PAGE_SIZE;
+    lseek(fd, meta.cursor / PAGE_SIZE, SEEK_SET);
+    while (read(fd, aligned_buffer, PAGE_SIZE) > 0 && total < count) {
+        ssize_t n = count - total > PAGE_SIZE ? PAGE_SIZE : count - total;
+        strncpy(buf + PAGE_SIZE * i++, aligned_buffer + offset, n);
         total += n;
+        meta.cursor += n;
+        offset = 0;
     }
     free(aligned_buffer);
     close(fd);
     return total;
 }
 
-uint64_t lab2_read(uint64_t inode, char* buf, int64_t count) {
+/** ------- функция чтения данных -------
+ * Чтение из файла происходит в случае, если время последней модификации файла отличается от времени
+ * модификации, которая записана в кэше. При этом условии, если требуемое количество страниц найдено
+ * (возможно с вытеснением) происходит перезапись нужных страниц. Если необходимое кол-во страниц не
+ * найдено, и даже вытеснение страниц не помогло, то происходит чтение данных в обход кэша.*/
+
+ssize_t lab2_read(uint64_t inode, char* buf, int64_t count) {
     FIND_INODE(inode, -1)
     auto& meta = it->second;
 
@@ -190,13 +232,10 @@ uint64_t lab2_read(uint64_t inode, char* buf, int64_t count) {
     return get_buffer(buf, meta, count);
 }
 
+/** ------- запись данных в кэш -------
+ * Отредактированные страницы помечаются флагом is_dirty */
 static int64_t write_to_cache(page_meta_t& meta, char* buf, int64_t count) {
-    if (pages_cache[meta.pages[0]].chars > 0)
-        meta.size = meta.cursor + count > meta.size ? meta.cursor + count : meta.size;
-    else {
-        meta.size = count;
-        meta.cursor = 0;
-    }
+    meta.size = meta.cursor + count;
     int64_t total_bytes = 0;
     uint16_t offset = meta.cursor % PAGE_SIZE;
     for (uint64_t i = meta.cursor / PAGE_SIZE; total_bytes < count; ++i) {
@@ -207,7 +246,7 @@ static int64_t write_to_cache(page_meta_t& meta, char* buf, int64_t count) {
         total_bytes += n;
         page.busy = true;
         page.is_dirty = true;
-        page.chars = n > page.chars ? n - page.chars : page.chars;
+        page.chars = offset + n;
         offset = 0;
     }
     return total_bytes;
@@ -227,7 +266,7 @@ static int64_t write_to_cache(page_meta_t& meta, char* buf, int64_t count) {
     ssize_t bytes_written = write(fd, aligned_buffer, PAGE_SIZE);   \
     WRITE_ERROR(ret)
 
-
+/** ------- запись данных в файл напрямую в обход кэша ОС -------*/
 static int64_t write_direct(page_meta_t& meta, char* buf, int64_t count) {
     char *aligned_buffer;
     int fd = open_direct(meta.filepath.c_str(), &aligned_buffer, O_WRONLY | O_CREAT);
@@ -250,6 +289,8 @@ static int64_t write_direct(page_meta_t& meta, char* buf, int64_t count) {
     return count;
 }
 
+/** ------- функция записи данных в файл -------
+ * Принцип тот же, что и для чтения */
 int64_t lab2_write(uint64_t inode, char* buf, int64_t count) {
     FIND_INODE(inode, -1)
     auto& meta = it->second;
@@ -264,8 +305,9 @@ int64_t lab2_write(uint64_t inode, char* buf, int64_t count) {
     return write_to_cache(meta, buf, count);
 }
 
-void lab2_lseek(uint64_t inode, int64_t offset, int whence) {
-    FIND_INODE(inode,)
+/** ------- переставляет указатель в файле ------- */
+off_t lab2_lseek(uint64_t inode, ssize_t offset, int whence) {
+    FIND_INODE(inode, -1)
     auto& meta = it->second;
     switch (whence) {
         case 0:
@@ -274,10 +316,13 @@ void lab2_lseek(uint64_t inode, int64_t offset, int whence) {
         case 1:
             meta.cursor = meta.size - offset >= 0 ? meta.size - offset : 0;
             break;
-        default: meta.cursor = meta.cursor + offset < meta.size ? meta.cursor + offset : meta.size;
+        default: meta.cursor = meta.cursor + offset < meta.size &&  meta.cursor + offset >= 0
+                ? meta.cursor + offset : meta.size;
     }
+    return meta.cursor;
 }
 
+/** ------- сброс данных на диск ------- */
 void lab2_fsync(uint64_t inode) {
     FIND_INODE(inode,)
     auto& meta = it->second;
@@ -298,18 +343,14 @@ void lab2_fsync(uint64_t inode) {
     close(fd);
 }
 
+/** ------- заполняет поле hint подсказкой для вытеснения страниц -------
+ * Так как у меня политика вытеснения кэша Optimal, задается некая подсказка, которая выражается в виде
+ * времени с точностью до наносекунд. Если текущее время меньше этой подсказки, страницы не могут быть вытеснены.
+ * Аргумент функции access_hint_t представляет собой количество секунд, в течение которого страницы, привязанные
+ * к этому файлы ни при каких условиях не будут вытеснены из кэша. */
+
 access_hint_t lab2_advice(uint64_t inode, access_hint_t hint) {
     struct timespec current_time{};
     clock_gettime(CLOCK_REALTIME, &current_time);
     meta_map[inode].hint = get_last_time(current_time) + hint;
-}
-
-void model() {
-    meta_map[0] = {.pages = {0,1,2}};
-    meta_map[1] = {.pages = {3, 4}};
-    lab2_advice(0, 3600);
-//    lab2_advice(1, 3600);
-    for (int i = 0; i < 5; ++i) {
-        pages_cache[i].busy = true;
-    }
 }
